@@ -81,7 +81,8 @@ public class PushHandlerActivity extends Activity implements PushConstants {
                 originalExtras.putString(INLINE_REPLY, inputString);
             }
 
-            PushPlugin.sendExtras(originalExtras);
+            
+            PushPlugin.sendExtras(getApplicationContext(), null, originalExtras);
         }
         return remoteInput == null;
     }

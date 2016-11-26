@@ -35,7 +35,8 @@ public class BackgroundActionButtonHandler extends BroadcastReceiver implements 
                 originalExtras.putString(INLINE_REPLY, inputString);
             }
 
-            PushPlugin.sendExtras(originalExtras);
+            
+            PushPlugin.sendExtras(context, null, originalExtras);
         }
      }
 }

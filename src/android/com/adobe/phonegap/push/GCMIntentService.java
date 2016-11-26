@@ -80,7 +80,8 @@ public class GCMIntentService extends GcmListenerService implements PushConstant
                 Log.d(LOG_TAG, "foreground");
                 extras.putBoolean(FOREGROUND, true);
                 extras.putBoolean(COLDSTART, false);
-                PushPlugin.sendExtras(extras);
+                
+                PushPlugin.sendExtras(getApplicationContext(), null, extras);
             }
             // if we are in the foreground and forceShow is `true`, force show the notification if the data has at least a message or title
             else if (forceShow && PushPlugin.isInForeground()) {
@@ -312,7 +313,8 @@ public class GCMIntentService extends GcmListenerService implements PushConstant
 		} else if ("1".equals(contentAvailable)) {
             Log.d(LOG_TAG, "app is not running and content available true");
             Log.d(LOG_TAG, "send notification event");
-            PushPlugin.sendExtras(extras);
+            
+            PushPlugin.sendExtras(getApplicationContext(), null, extras);
         }
     }
 
