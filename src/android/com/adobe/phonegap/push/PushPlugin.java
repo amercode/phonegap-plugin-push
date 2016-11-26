@@ -25,6 +25,12 @@ import java.util.Iterator;
 import java.util.ArrayList;
 import java.util.List;
 
+
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import android.os.Parcel;
+
 import me.leolin.shortcutbadger.ShortcutBadger;
 
 public class PushPlugin extends CordovaPlugin implements PushConstants {
@@ -34,7 +40,10 @@ public class PushPlugin extends CordovaPlugin implements PushConstants {
     private static CallbackContext pushContext;
     private static CordovaWebView gWebView;
     private static List<Bundle> gCachedExtras = Collections.synchronizedList(new ArrayList<Bundle>());
+    
+    private static final String extrasListFilename = "ExtrasList";
     private static boolean gForeground = false;
+    private static boolean fileLoaded = false;
 
     private static String registration_id = "";
 
@@ -44,6 +53,71 @@ public class PushPlugin extends CordovaPlugin implements PushConstants {
      */
     private Context getApplicationContext() {
         return this.cordova.getActivity().getApplicationContext();
+    }
+
+    
+    private static void readFromFileExtrasList(Context context, final CallbackContext callbackContext) {
+        
+        try {
+            File file = context.getFileStreamPath(extrasListFilename);
+
+            if (file.isFile() && file.length() > 0) {
+                FileInputStream fis = context.openFileInput(extrasListFilename);
+                byte[] rawData = new byte[(int)file.length()];
+                int actualSize = fis.read(rawData);
+                final Parcel parcel = Parcel.obtain();
+                parcel.unmarshall(rawData, 0, actualSize);
+                parcel.setDataPosition(0);
+                ArrayList<Bundle> data = parcel.createTypedArrayList(Bundle.CREATOR);
+                if(data != null) // file is well formatted
+                {
+                    gCachedExtras = Collections.synchronizedList(data);
+                }
+                fis.close();
+
+            }
+
+            fileLoaded = true;
+
+        } catch (IOException e){
+            Log.e(LOG_TAG, "readFromFileExtrasList: Got IO Exception " + e.getMessage());
+            if(callbackContext != null) {
+                callbackContext.error(e.getMessage());
+            }
+        }
+    }
+
+    
+    private static void writeToFileExtrasList(Context context, final CallbackContext callbackContext) {
+        try {
+
+            FileOutputStream fos = context.openFileOutput(extrasListFilename, Context.MODE_PRIVATE);
+            final Parcel parcel = Parcel.obtain();
+            parcel.writeTypedList(gCachedExtras);
+            fos.write(parcel.marshall());
+            fos.flush();
+            fos.close();
+
+        } catch (IOException e){
+            Log.e(LOG_TAG, "writeToFileExtrasList: Got IO Exception " + e.getMessage());
+            if(callbackContext != null) {
+                callbackContext.error(e.getMessage());
+            }
+        }
+    }
+
+    
+    private static void deleteFileExtraList(final Context context, final CallbackContext callbackContext) {
+
+        File file = context.getFileStreamPath(extrasListFilename);
+
+        if (file.exists() && !file.delete()) {
+            String error = "deleteFileExtraList: Could not delete file " + file.getName();
+            Log.e(LOG_TAG, error);
+            if(callbackContext != null) {
+                callbackContext.error(error);
+            }
+        }
     }
 
     @Override
@@ -122,7 +196,8 @@ public class PushPlugin extends CordovaPlugin implements PushConstants {
 
                     }
 
-                    if (!gCachedExtras.isEmpty()) {
+                    
+                    /* if (!gCachedExtras.isEmpty()) {
                         Log.v(LOG_TAG, "sending cached extras");
                         synchronized(gCachedExtras) {
                             Iterator<Bundle> gCachedExtrasIterator = gCachedExtras.iterator();
@@ -131,7 +206,11 @@ public class PushPlugin extends CordovaPlugin implements PushConstants {
                             }
                         }
                         gCachedExtras.clear();
-                    }
+                    } */
+
+                    
+                    Log.v(LOG_TAG, "sending cached extras if any");
+                    sendExtras(getApplicationContext(), callbackContext, null);
                 }
             });
         } else if (UNREGISTER.equals(action)) {
@@ -194,6 +273,18 @@ public class PushPlugin extends CordovaPlugin implements PushConstants {
                     callbackContext.success();
                 }
             });
+        } else if (CLEAR_NOTIFICATION.equals(action)) { 
+            cordova.getThreadPool().execute(new Runnable() {
+                public void run() {
+                    Log.v(LOG_TAG, "clearNotification");             
+                    try {
+                        clearNotification(data.getJSONObject(0).getInt(NOT_ID));
+                    } catch (JSONException e) {
+                        callbackContext.error(e.getMessage());
+                    }
+                    callbackContext.success();
+                }
+            });
         } else if (CLEAR_ALL_NOTIFICATIONS.equals(action)) {
             cordova.getThreadPool().execute(new Runnable() {
                 public void run() {
@@ -241,6 +332,15 @@ public class PushPlugin extends CordovaPlugin implements PushConstants {
         return true;
     }
 
+    
+    public static void sendEvent(JSONArray _json) {
+        PluginResult pluginResult = new PluginResult(PluginResult.Status.OK, _json);
+        pluginResult.setKeepCallback(true);
+        if (pushContext != null) {
+            pushContext.sendPluginResult(pluginResult);
+        }
+    }
+
     public static void sendEvent(JSONObject _json) {
         PluginResult pluginResult = new PluginResult(PluginResult.Status.OK, _json);
         pluginResult.setKeepCallback(true);
@@ -257,11 +357,12 @@ public class PushPlugin extends CordovaPlugin implements PushConstants {
         }
     }
 
+    
     /*
      * Sends the pushbundle extras to the client application.
      * If the client application isn't currently active, it is cached for later processing.
      */
-    public static void sendExtras(Bundle extras) {
+    /* public static void sendExtras(Bundle extras) {
         if (extras != null) {
             if (gWebView != null) {
                 sendEvent(convertBundleToJson(extras));
@@ -270,7 +371,44 @@ public class PushPlugin extends CordovaPlugin implements PushConstants {
                 gCachedExtras.add(extras);
             }
         }
+    } */
+
+    
+    /*
+     * Sends the pushbundle extras to the client application.
+     * If the client application isn't currently active, it is cached for later processing.
+     */
+    public static synchronized boolean sendExtras(final Context context, final CallbackContext callbackContext, Bundle extras) {
+        boolean cached = false;
+        
+        if(!fileLoaded) {
+            readFromFileExtrasList(context, null);
+        }
+
+        if(!gCachedExtras.isEmpty()) {
+            cached = true;
+        }
+
+        if(extras != null) {
+            gCachedExtras.add(extras);
+        } else if (!cached) {
+            return false;
+        }
+
+        if (gWebView != null) {
+            sendEvent(convertBundleToJson(gCachedExtras));
+            gCachedExtras.clear();
+            if(cached) {
+                deleteFileExtraList(context, callbackContext) ;
+            }
+            return true;
+        } else {
+            Log.v(LOG_TAG, "sendExtras: caching extras to send at a later time.");
+            writeToFileExtrasList(context, callbackContext);
+            return false;
+        }  
     }
+
 
     public static void setApplicationIconBadgeNumber(Context context, int badgeCount) {
         if (badgeCount > 0) {
@@ -308,6 +446,12 @@ public class PushPlugin extends CordovaPlugin implements PushConstants {
         super.onDestroy();
         gForeground = false;
         gWebView = null;
+    }
+
+    
+    private void clearNotification(int notId) {
+        final NotificationManager notificationManager = (NotificationManager) cordova.getActivity().getSystemService(Context.NOTIFICATION_SERVICE);
+        notificationManager.cancel(GCMIntentService.getAppName(cordova.getActivity()), notId);
     }
 
     private void clearAllNotifications() {
@@ -382,6 +526,15 @@ public class PushPlugin extends CordovaPlugin implements PushConstants {
             Log.e(LOG_TAG, "Failed to unsubscribe to topic: " + topic, e);
 			throw e;
         }
+    }
+
+    
+    private static JSONArray convertBundleToJson(List<Bundle> extrasList) {
+        JSONArray json = new JSONArray();
+        for (Bundle extras : extrasList) {
+            json.put(convertBundleToJson(extras));
+        }
+        return json;
     }
 
     /*
