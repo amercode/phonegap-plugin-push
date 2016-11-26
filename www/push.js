@@ -185,6 +185,29 @@ PushNotification.prototype.getApplicationIconBadgeNumber = function(successCallb
  * Get the application icon badge
  */
 
+PushNotification.prototype.clearNotification = function(successCallback, errorCallback, notId) {
+    if (!successCallback) { successCallback = function() {}; }
+    if (!errorCallback) { errorCallback = function() {}; }
+
+    if (typeof errorCallback !== 'function')  {
+        console.log('PushNotification.clearNotification failure: failure parameter not a function');
+        return;
+    }
+
+    if (typeof successCallback !== 'function') {
+        console.log('PushNotification.clearNotification failure: success callback parameter must be a function');
+        return;
+    }
+
+    exec(successCallback, errorCallback, 'PushNotification', 'clearNotification', [{notId: notId}]);
+};
+
+
+
+/**
+ * Get the application icon badge
+ */
+
 PushNotification.prototype.clearAllNotifications = function(successCallback, errorCallback) {
     if (!successCallback) { successCallback = function() {}; }
     if (!errorCallback) { errorCallback = function() {}; }
